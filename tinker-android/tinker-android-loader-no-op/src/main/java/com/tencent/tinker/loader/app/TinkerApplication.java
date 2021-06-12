@@ -25,6 +25,7 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.SystemClock;
 
+import com.tencent.tinker.anno.Keep;
 import com.tencent.tinker.entry.ApplicationLike;
 import com.tencent.tinker.loader.TinkerRuntimeException;
 import com.tencent.tinker.loader.shareutil.ShareConstants;
@@ -36,31 +37,48 @@ import java.lang.reflect.Constructor;
  * Created by zhangshaowen on 16/3/8.
  */
 public abstract class TinkerApplication extends Application {
+    private static final TinkerApplication[] SELF_HOLDER = {null};
+
     private final int tinkerFlags;
     private final boolean tinkerLoadVerifyFlag;
     private final String delegateClassName;
+    private final boolean useDelegateLastClassLoader;
 
     /**
      * if we have load patch, we should use safe mode
      */
-    private Intent tinkerResultIntent;
-    private ClassLoader mCurrentClassLoader = null;
+    protected Intent tinkerResultIntent;
+    protected ClassLoader mCurrentClassLoader = null;
     private ApplicationLike mAppLike = null;
 
     protected TinkerApplication(int tinkerFlags) {
         this(ShareConstants.TINKER_DISABLE, "com.tencent.tinker.entry.DefaultApplicationLike",
-                null, false);
+                null, false, false);
     }
 
     protected TinkerApplication(int tinkerFlags, String delegateClassName) {
-        this(ShareConstants.TINKER_DISABLE, delegateClassName, null, false);
+        this(ShareConstants.TINKER_DISABLE, delegateClassName, null, false, false);
     }
 
     protected TinkerApplication(int tinkerFlags, String delegateClassName,
-                                String loaderClassName, boolean tinkerLoadVerifyFlag) {
+                                String loaderClassName, boolean tinkerLoadVerifyFlag,
+                                boolean useDelegateLastClassLoader) {
+        synchronized (SELF_HOLDER) {
+            SELF_HOLDER[0] = this;
+        }
         this.tinkerFlags = ShareConstants.TINKER_DISABLE;
         this.delegateClassName = delegateClassName;
         this.tinkerLoadVerifyFlag = tinkerLoadVerifyFlag;
+        this.useDelegateLastClassLoader = useDelegateLastClassLoader;
+    }
+
+    public static TinkerApplication getInstance() {
+        synchronized (SELF_HOLDER) {
+            if (SELF_HOLDER[0] == null) {
+                throw new IllegalStateException("TinkerApplication is not initialized.");
+            }
+            return SELF_HOLDER[0];
+        }
     }
 
     private ApplicationLike createDelegate(Application app,
@@ -83,12 +101,8 @@ public abstract class TinkerApplication extends Application {
         }
     }
 
-    @Override
-    protected void attachBaseContext(Context base) {
-        super.attachBaseContext(base);
+    protected void onBaseContextAttached(Context base, long applicationStartElapsedTime, long applicationStartMillisTime) {
         try {
-            final long applicationStartElapsedTime = SystemClock.elapsedRealtime();
-            final long applicationStartMillisTime = System.currentTimeMillis();
             mCurrentClassLoader = base.getClassLoader();
             this.tinkerResultIntent = new Intent();
             ShareIntentUtil.setIntentReturnCode(this.tinkerResultIntent, ShareConstants.ERROR_LOAD_DISABLE);
@@ -104,64 +118,112 @@ public abstract class TinkerApplication extends Application {
     }
 
     @Override
+    protected void attachBaseContext(Context base) {
+        super.attachBaseContext(base);
+        final long applicationStartElapsedTime = SystemClock.elapsedRealtime();
+        final long applicationStartMillisTime = System.currentTimeMillis();
+        onBaseContextAttached(base, applicationStartElapsedTime, applicationStartMillisTime);
+    }
+
+    @Override
     public void onCreate() {
         super.onCreate();
-        mAppLike.onCreate();
+        if (mAppLike != null) {
+            mAppLike.onCreate();
+        }
     }
 
     @Override
     public void onTerminate() {
         super.onTerminate();
-        mAppLike.onTerminate();
+        if (mAppLike != null) {
+            mAppLike.onTerminate();
+        }
     }
 
     @Override
     public void onLowMemory() {
         super.onLowMemory();
-        mAppLike.onLowMemory();
+        if (mAppLike != null) {
+            mAppLike.onLowMemory();
+        }
     }
 
     @TargetApi(14)
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
-        mAppLike.onTrimMemory(level);
+        if (mAppLike != null) {
+            mAppLike.onTrimMemory(level);
+        }
     }
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        mAppLike.onConfigurationChanged(newConfig);
+        if (mAppLike != null) {
+            mAppLike.onConfigurationChanged(newConfig);
+        }
     }
 
     @Override
     public Resources getResources() {
         final Resources resources = super.getResources();
-        return mAppLike.getResources(resources);
+        if (mAppLike != null) {
+            return mAppLike.getResources(resources);
+        } else {
+            return resources;
+        }
     }
 
     @Override
     public ClassLoader getClassLoader() {
         final ClassLoader classLoader = super.getClassLoader();
-        return mAppLike.getClassLoader(classLoader);
+        if (mAppLike != null) {
+            return mAppLike.getClassLoader(classLoader);
+        } else {
+            return classLoader;
+        }
     }
 
     @Override
     public AssetManager getAssets() {
         final AssetManager assets = super.getAssets();
-        return mAppLike.getAssets(assets);
+        if (mAppLike != null) {
+            return mAppLike.getAssets(assets);
+        } else {
+            return assets;
+        }
     }
 
     @Override
     public Object getSystemService(String name) {
         final Object service = super.getSystemService(name);
-        return mAppLike.getSystemService(name, service);
+        if (mAppLike != null) {
+            return mAppLike.getSystemService(name, service);
+        } else {
+            return service;
+        }
     }
 
     @Override
     public Context getBaseContext() {
         final Context base = super.getBaseContext();
-        return mAppLike.getBaseContext(base);
+        if (mAppLike != null) {
+            return mAppLike.getBaseContext(base);
+        } else {
+            return base;
+        }
+    }
+
+    @Keep
+    public int mzNightModeUseOf() {
+        if (mAppLike != null) {
+            return mAppLike.mzNightModeUseOf();
+        } else {
+            // Return 1 for default according to MeiZu's announcement.
+            return 1;
+        }
     }
 
     public void setUseSafeMode(boolean useSafeMode) {
@@ -174,5 +236,9 @@ public abstract class TinkerApplication extends Application {
 
     public int getTinkerFlags() {
         return tinkerFlags;
+    }
+
+    public boolean isUseDelegateLastClassLoader() {
+        return useDelegateLastClassLoader;
     }
 }

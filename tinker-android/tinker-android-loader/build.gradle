@@ -1,6 +1,5 @@
 apply plugin: 'com.android.library'
 
-
 version rootProject.ext.VERSION_NAME
 group rootProject.ext.GROUP
 
@@ -15,6 +14,8 @@ android {
         buildConfigField "String", "TINKER_VERSION", "\"${rootProject.ext.VERSION_NAME}\""
 
         manifestPlaceholders = [TINKER_VERSION: "${rootProject.ext.VERSION_NAME}"]
+
+        consumerProguardFiles file('../consumer-proguard.txt')
     }
 
     lintOptions {
@@ -24,8 +25,9 @@ android {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
+    compileOnly fileTree(dir: 'stubs', include: ['*.jar'])
     testImplementation 'junit:junit:4.12'
-    implementation "androidx.annotation:annotation:${rootProject.ext.androidXAnnotationVersion}"
+    implementation project(':tinker-android:tinker-android-anno-support')
 }
 
 task buildTinkerSdk(type: Copy, dependsOn: [build]) {
@@ -40,5 +42,4 @@ task buildTinkerSdk(type: Copy, dependsOn: [build]) {
     }
 }
 
-apply from: rootProject.file('gradle/android-artifacts.gradle')
-apply from: rootProject.file('gradle/gradle-mvn-push.gradle')
+apply from: rootProject.file('gradle/PublishArtifact.gradle')

@@ -5,12 +5,11 @@ group rootProject.ext.GROUP
 
 [compileJava, compileTestJava, javadoc]*.options*.encoding = 'UTF-8'
 
-
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     api project(':tinker-commons')
     api group: 'com.tencent.mm', name: 'apk-parser-lib', version: '1.2.3'
-    implementation group: 'com.google.guava', name: 'guava', version: '11.0.2'
+    implementation group: 'com.google.guava', name: 'guava', version: '14.0.1'
     implementation group: 'org.ow2.asm', name: 'asm', version: '6.0'
     implementation (group: 'org.smali', name: 'dexlib2', version: '2.3.1') {
         exclude group: 'com.google.guava'
@@ -30,5 +29,4 @@ sourceSets {
     }
 }
 
-apply from: rootProject.file('gradle/java-artifacts.gradle')
-apply from: rootProject.file('gradle/gradle-mvn-push.gradle')
+apply from: rootProject.file('gradle/PublishArtifact.gradle')

@@ -21,38 +21,38 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.os.Build;
 
-import com.tencent.tinker.loader.app.TinkerApplication;
-
 import java.io.File;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
 
+import dalvik.system.DelegateLastClassLoader;
+
 /**
  * Created by tangyinsheng on 2019-10-31.
  */
 final class NewClassLoaderInjector {
-    public static ClassLoader inject(Application app, ClassLoader oldClassLoader, File dexOptDir, List<File> patchedDexes) throws Throwable {
+    public static ClassLoader inject(Application app, ClassLoader oldClassLoader, File dexOptDir,
+                                     boolean useDLC, List<File> patchedDexes) throws Throwable {
         final String[] patchedDexPaths = new String[patchedDexes.size()];
         for (int i = 0; i < patchedDexPaths.length; ++i) {
             patchedDexPaths[i] = patchedDexes.get(i).getAbsolutePath();
         }
-        final ClassLoader newClassLoader = createNewClassLoader(app, oldClassLoader, dexOptDir, patchedDexPaths);
+        final ClassLoader newClassLoader = createNewClassLoader(oldClassLoader,
+              dexOptDir, useDLC, patchedDexPaths);
         doInject(app, newClassLoader);
         return newClassLoader;
     }
 
-    public static void triggerDex2Oat(Context context, File dexOptDir, String... dexPaths) throws Throwable {
-        // Suggestion from Huawei: Only PathClassLoader (Perhaps other ClassLoaders known by system
-        // like DexClassLoader also works ?) can be used here to trigger dex2oat so that JIT
-        // mechanism can participate in runtime Dex optimization.
-        final ClassLoader appClassLoader = TinkerApplication.class.getClassLoader();
-        final ClassLoader triggerClassLoader = createNewClassLoader(context, appClassLoader, dexOptDir, dexPaths);
+    public static void triggerDex2Oat(Context context, File dexOptDir, boolean useDLC,
+                                      String... dexPaths) throws Throwable {
+        final ClassLoader triggerClassLoader = createNewClassLoader(context.getClassLoader(), dexOptDir, useDLC, dexPaths);
     }
 
     @SuppressWarnings("unchecked")
-    private static ClassLoader createNewClassLoader(Context context, ClassLoader oldClassLoader,
+    private static ClassLoader createNewClassLoader(ClassLoader oldClassLoader,
                                                     File dexOptDir,
+                                                    boolean useDLC,
                                                     String... patchDexPaths) throws Throwable {
         final Field pathListField = findField(
                 Class.forName("dalvik.system.BaseDexClassLoader", false, oldClassLoader),
@@ -96,8 +96,21 @@ final class NewClassLoaderInjector {
 
         final String combinedLibraryPath = libraryPathBuilder.toString();
 
-        final ClassLoader result = new TinkerClassLoader(combinedDexPath, dexOptDir, combinedLibraryPath, oldClassLoader);
-        findField(oldPathList.getClass(), "definingContext").set(oldPathList, result);
+        ClassLoader result = null;
+        if (useDLC && Build.VERSION.SDK_INT >= 27) {
+            result = new DelegateLastClassLoader(combinedDexPath, combinedLibraryPath, ClassLoader.getSystemClassLoader());
+            final Field parentField = ClassLoader.class.getDeclaredField("parent");
+            parentField.setAccessible(true);
+            parentField.set(result, oldClassLoader);
+        } else {
+            result = new TinkerClassLoader(combinedDexPath, dexOptDir, combinedLibraryPath, oldClassLoader);
+        }
+
+        // 'EnsureSameClassLoader' mechanism which is first introduced in Android O
+        // may cause exception if we replace definingContext of old classloader.
+        if (Build.VERSION.SDK_INT < 26) {
+            findField(oldPathList.getClass(), "definingContext").set(oldPathList, result);
+        }
 
         return result;
     }
@@ -106,6 +119,14 @@ final class NewClassLoaderInjector {
         Thread.currentThread().setContextClassLoader(classLoader);
 
         final Context baseContext = (Context) findField(app.getClass(), "mBase").get(app);
+        try {
+            findField(baseContext.getClass(), "mClassLoader").set(baseContext, classLoader);
+        } catch (Throwable ignored) {
+            // There's no mClassLoader field in ContextImpl before Android O.
+            // However we should try our best to replace this field in case some
+            // customized system has one.
+        }
+
         final Object basePackageInfo = findField(baseContext.getClass(), "mPackageInfo").get(baseContext);
         findField(basePackageInfo.getClass(), "mClassLoader").set(basePackageInfo, classLoader);
 

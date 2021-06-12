@@ -26,6 +26,7 @@ import android.content.res.Resources;
 import android.os.Handler;
 import android.os.SystemClock;
 
+import com.tencent.tinker.anno.Keep;
 import com.tencent.tinker.loader.TinkerLoader;
 import com.tencent.tinker.loader.TinkerRuntimeException;
 import com.tencent.tinker.loader.TinkerUncaughtHandler;
@@ -42,6 +43,8 @@ import java.lang.reflect.Method;
 public abstract class TinkerApplication extends Application {
     private static final String INTENT_PATCH_EXCEPTION = ShareIntentUtil.INTENT_PATCH_EXCEPTION;
     private static final String TINKER_LOADER_METHOD = "tryLoad";
+
+    private static final TinkerApplication[] SELF_HOLDER = {null};
 
     /**
      * tinkerFlags, which types is supported
@@ -64,26 +67,47 @@ public abstract class TinkerApplication extends Application {
      * if we have load patch, we should use safe mode
      */
     private boolean useSafeMode;
-    private Intent tinkerResultIntent;
+    protected Intent tinkerResultIntent;
 
-    private ClassLoader mCurrentClassLoader = null;
+    protected ClassLoader mCurrentClassLoader = null;
     private Handler mInlineFence = null;
+
+    private final boolean useDelegateLastClassLoader;
 
     protected TinkerApplication(int tinkerFlags) {
         this(tinkerFlags, "com.tencent.tinker.entry.DefaultApplicationLike",
-                TinkerLoader.class.getName(), false);
+                TinkerLoader.class.getName(), false, false);
+    }
+
+    protected TinkerApplication(int tinkerFlags, String delegateClassName) {
+        this(tinkerFlags, delegateClassName, TinkerLoader.class.getName(), false, false);
     }
 
     protected TinkerApplication(int tinkerFlags, String delegateClassName,
                                 String loaderClassName, boolean tinkerLoadVerifyFlag) {
+        this(tinkerFlags, delegateClassName, loaderClassName, tinkerLoadVerifyFlag, true);
+    }
+
+    protected TinkerApplication(int tinkerFlags, String delegateClassName,
+                                String loaderClassName, boolean tinkerLoadVerifyFlag,
+                                boolean useDelegateLastClassLoader) {
+        synchronized (SELF_HOLDER) {
+            SELF_HOLDER[0] = this;
+        }
         this.tinkerFlags = tinkerFlags;
         this.delegateClassName = delegateClassName;
         this.loaderClassName = loaderClassName;
         this.tinkerLoadVerifyFlag = tinkerLoadVerifyFlag;
+        this.useDelegateLastClassLoader = useDelegateLastClassLoader;
     }
 
-    protected TinkerApplication(int tinkerFlags, String delegateClassName) {
-        this(tinkerFlags, delegateClassName, TinkerLoader.class.getName(), false);
+    public static TinkerApplication getInstance() {
+        synchronized (SELF_HOLDER) {
+            if (SELF_HOLDER[0] == null) {
+                throw new IllegalStateException("TinkerApplication is not initialized.");
+            }
+            return SELF_HOLDER[0];
+        }
     }
 
     private void loadTinker() {
@@ -128,10 +152,8 @@ public abstract class TinkerApplication extends Application {
         }
     }
 
-    private void onBaseContextAttached(Context base) {
+    protected void onBaseContextAttached(Context base, long applicationStartElapsedTime, long applicationStartMillisTime) {
         try {
-            final long applicationStartElapsedTime = SystemClock.elapsedRealtime();
-            final long applicationStartMillisTime = System.currentTimeMillis();
             loadTinker();
             mCurrentClassLoader = base.getClassLoader();
             mInlineFence = createInlineFence(this, tinkerFlags, delegateClassName,
@@ -152,8 +174,10 @@ public abstract class TinkerApplication extends Application {
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
+        final long applicationStartElapsedTime = SystemClock.elapsedRealtime();
+        final long applicationStartMillisTime = System.currentTimeMillis();
         Thread.setDefaultUncaughtExceptionHandler(new TinkerUncaughtHandler(this));
-        onBaseContextAttached(base);
+        onBaseContextAttached(base, applicationStartElapsedTime, applicationStartMillisTime);
     }
 
     @Override
@@ -247,6 +271,15 @@ public abstract class TinkerApplication extends Application {
         return TinkerInlineFenceAction.callGetBaseContext(mInlineFence, base);
     }
 
+    @Keep
+    public int mzNightModeUseOf() {
+        if (mInlineFence == null) {
+            // Return 1 for default according to MeiZu's announcement.
+            return 1;
+        }
+        return TinkerInlineFenceAction.callMZNightModeUseOf(mInlineFence);
+    }
+
     public void setUseSafeMode(boolean useSafeMode) {
         this.useSafeMode = useSafeMode;
     }
@@ -257,5 +290,9 @@ public abstract class TinkerApplication extends Application {
 
     public int getTinkerFlags() {
         return tinkerFlags;
+    }
+
+    public boolean isUseDelegateLastClassLoader() {
+        return useDelegateLastClassLoader;
     }
 }

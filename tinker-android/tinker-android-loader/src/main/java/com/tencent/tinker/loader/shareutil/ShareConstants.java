@@ -98,6 +98,7 @@ public class ShareConstants {
     public static final String DEX_IN_JAR  = "classes.dex";
 
     public static final String PATCH_DIRECTORY_NAME       = "tinker";
+    public static final String PATCH_DIRECTORY_NAME_SPEC  = "wc_tinker_dir";
     public static final String PATCH_TEMP_DIRECTORY_NAME  = "tinker_temp";
     public static final String PATCH_TEMP_LAST_CRASH_NAME = "tinker_last_crash";
 
@@ -176,6 +177,8 @@ public class ShareConstants {
     public static final int ERROR_LOAD_PATCH_VERSION_RESOURCE_LOAD_EXCEPTION      = -23;
     public static final int ERROR_LOAD_PATCH_VERSION_RESOURCE_MD5_MISMATCH        = -24;
     public static final int ERROR_LOAD_PATCH_UNCAUGHT_EXCEPTION                   = -25;
+    // -26 & -27 is used by WeChat internal logic.
+    public static final int ERROR_LOAD_PATCH_BAIL_HACK_FAILURE                    = -28;
 
     public static final int ERROR_LOAD_GET_INTENT_FAIL = -10000;
 

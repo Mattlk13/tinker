@@ -16,7 +16,7 @@
 
 package com.tencent.tinker.build.gradle.task
 
-import com.tencent.tinker.build.gradle.TinkerPatchPlugin
+import com.tencent.tinker.build.gradle.TinkerBuildPath
 import com.tencent.tinker.build.util.FileOperation
 import com.tencent.tinker.commons.util.IOHelper
 import groovy.xml.Namespace
@@ -33,7 +33,7 @@ public class TinkerManifestTask extends DefaultTask {
     static final String TINKER_ID = "TINKER_ID"
     static final String TINKER_ID_PREFIX = "tinker_id_"
 
-    List<String> manifestPaths = []
+    final Map<String, File> outputNameToManifestMap = new HashMap<>()
 
     TinkerManifestTask() {
         group = 'tinker'
@@ -43,6 +43,8 @@ public class TinkerManifestTask extends DefaultTask {
     def updateManifest() {
         // Parse the AndroidManifest.xml
         String tinkerValue = project.extensions.tinkerPatch.buildConfig.tinkerId
+        boolean appendOutputNameToTinkerId = project.extensions.tinkerPatch.buildConfig.appendOutputNameToTinkerId
+
         if (tinkerValue == null || tinkerValue.isEmpty()) {
             throw new GradleException('tinkerId is not set!!!')
         }
@@ -50,15 +52,21 @@ public class TinkerManifestTask extends DefaultTask {
         tinkerValue = TINKER_ID_PREFIX + tinkerValue
 
         def agpIntermediatesDir = new File(project.buildDir, 'intermediates')
-        for (String manifestPath : manifestPaths) {
-            project.logger.error("tinker add ${tinkerValue} to your AndroidManifest.xml ${manifestPath}")
+        outputNameToManifestMap.each { String outputName, File manifest ->
+            def manifestPath = manifest.getAbsolutePath()
+            def finalTinkerValue = tinkerValue
+            if (appendOutputNameToTinkerId && !outputName.isEmpty()) {
+                finalTinkerValue += "_${outputName}"
+            }
 
-            writeManifestMeta(manifestPath, TINKER_ID, tinkerValue)
+            project.logger.error("tinker add ${finalTinkerValue} to your AndroidManifest.xml ${manifestPath}")
+
+            writeManifestMeta(manifestPath, TINKER_ID, finalTinkerValue)
             addApplicationToLoaderPattern(manifestPath)
             File manifestFile = new File(manifestPath)
             if (manifestFile.exists()) {
                 def manifestRelPath = agpIntermediatesDir.toPath().relativize(manifestFile.toPath()).toString()
-                def manifestDestPath = new File(project.file(TinkerPatchPlugin.TINKER_INTERMEDIATES), manifestRelPath)
+                def manifestDestPath = new File(project.file(TinkerBuildPath.getTinkerIntermediates(project)), manifestRelPath)
                 FileOperation.copyFileUsingStream(manifestFile, manifestDestPath)
                 project.logger.error("tinker gen AndroidManifest.xml in ${manifestDestPath}")
             }

@@ -19,11 +19,11 @@ package com.tencent.tinker.loader;
 
 import android.app.Application;
 import android.os.Build;
-import android.util.Log;
 
 import com.tencent.tinker.loader.shareutil.ShareConstants;
 import com.tencent.tinker.loader.shareutil.SharePatchFileUtil;
 import com.tencent.tinker.loader.shareutil.ShareReflectUtil;
+import com.tencent.tinker.loader.shareutil.ShareTinkerLog;
 
 import java.io.File;
 import java.io.IOException;
@@ -51,31 +51,21 @@ public class SystemClassLoaderAdder {
     private static final String TAG = "Tinker.ClassLoaderAdder";
     private static int sPatchDexCount = 0;
 
-    public static void installDexes(Application application, ClassLoader loader, File dexOptDir, List<File> files, boolean isProtectedApp)
-        throws Throwable {
-        Log.i(TAG, "installDexes dexOptDir: " + dexOptDir.getAbsolutePath() + ", dex size:" + files.size());
+    public static void installDexes(Application application, ClassLoader loader, File dexOptDir, List<File> files,
+                                    boolean isProtectedApp, boolean useDLC) throws Throwable {
+        ShareTinkerLog.i(TAG, "installDexes dexOptDir: " + dexOptDir.getAbsolutePath() + ", dex size:" + files.size());
 
         if (!files.isEmpty()) {
             files = createSortedAdditionalPathEntries(files);
             ClassLoader classLoader = loader;
             if (Build.VERSION.SDK_INT >= 24 && !isProtectedApp) {
-                classLoader = NewClassLoaderInjector.inject(application, loader, dexOptDir, files);
+                classLoader = NewClassLoaderInjector.inject(application, loader, dexOptDir, useDLC, files);
             } else {
-                //because in dalvik, if inner class is not the same classloader with it wrapper class.
-                //it won't fail at dex2opt
-                if (Build.VERSION.SDK_INT >= 23) {
-                    V23.install(classLoader, files, dexOptDir);
-                } else if (Build.VERSION.SDK_INT >= 19) {
-                    V19.install(classLoader, files, dexOptDir);
-                } else if (Build.VERSION.SDK_INT >= 14) {
-                    V14.install(classLoader, files, dexOptDir);
-                } else {
-                    V4.install(classLoader, files, dexOptDir);
-                }
+                injectDexesInternal(classLoader, files, dexOptDir);
             }
             //install done
             sPatchDexCount = files.size();
-            Log.i(TAG, "after loaded classloader: " + classLoader + ", dex size:" + sPatchDexCount);
+            ShareTinkerLog.i(TAG, "after loaded classloader: " + classLoader + ", dex size:" + sPatchDexCount);
 
             if (!checkDexInstall(classLoader)) {
                 //reset patch dex
@@ -85,13 +75,25 @@ public class SystemClassLoaderAdder {
         }
     }
 
+    static void injectDexesInternal(ClassLoader cl, List<File> dexFiles, File optimizeDir) throws Throwable {
+        if (Build.VERSION.SDK_INT >= 23) {
+            V23.install(cl, dexFiles, optimizeDir);
+        } else if (Build.VERSION.SDK_INT >= 19) {
+            V19.install(cl, dexFiles, optimizeDir);
+        } else if (Build.VERSION.SDK_INT >= 14) {
+            V14.install(cl, dexFiles, optimizeDir);
+        } else {
+            V4.install(cl, dexFiles, optimizeDir);
+        }
+    }
+
     public static void installApk(PathClassLoader loader, List<File> files) throws Throwable {
         if (!files.isEmpty()) {
             files = createSortedAdditionalPathEntries(files);
             ClassLoader classLoader = loader;
             ArkHot.install(classLoader, files);
             sPatchDexCount = files.size();
-            Log.i(TAG, "after loaded classloader: " + classLoader + ", dex size:" + sPatchDexCount);
+            ShareTinkerLog.i(TAG, "after loaded classloader: " + classLoader + ", dex size:" + sPatchDexCount);
 
             if (!checkDexInstall(classLoader)) {
                 // reset patch dex
@@ -125,7 +127,7 @@ public class SystemClassLoaderAdder {
         Class<?> clazz = Class.forName(CHECK_DEX_CLASS, true, classLoader);
         Field filed = ShareReflectUtil.findField(clazz, CHECK_DEX_FIELD);
         boolean isPatch = (boolean) filed.get(null);
-        Log.w(TAG, "checkDexInstall result:" + isPatch);
+        ShareTinkerLog.w(TAG, "checkDexInstall result:" + isPatch);
         return isPatch;
     }
 
@@ -202,7 +204,7 @@ public class SystemClassLoaderAdder {
                         "applyPatch", ClassLoader.class, String.class);
                 applyPatchMethod.setAccessible(true);
                 applyPatchMethod.invoke(null, loader, path);
-                Log.i(TAG, "ArkHot install path = " + path);
+                ShareTinkerLog.i(TAG, "ArkHot install path = " + path);
             }
         }
     }
@@ -229,7 +231,7 @@ public class SystemClassLoaderAdder {
                 suppressedExceptions));
             if (suppressedExceptions.size() > 0) {
                 for (IOException e : suppressedExceptions) {
-                    Log.w(TAG, "Exception in makePathElement", e);
+                    ShareTinkerLog.w(TAG, "Exception in makePathElement", e);
                     throw e;
                 }
 
@@ -250,16 +252,16 @@ public class SystemClassLoaderAdder {
                 makePathElements = ShareReflectUtil.findMethod(dexPathList, "makePathElements", List.class, File.class,
                     List.class);
             } catch (NoSuchMethodException e) {
-                Log.e(TAG, "NoSuchMethodException: makePathElements(List,File,List) failure");
+                ShareTinkerLog.e(TAG, "NoSuchMethodException: makePathElements(List,File,List) failure");
                 try {
                     makePathElements = ShareReflectUtil.findMethod(dexPathList, "makePathElements", ArrayList.class, File.class, ArrayList.class);
                 } catch (NoSuchMethodException e1) {
-                    Log.e(TAG, "NoSuchMethodException: makeDexElements(ArrayList,File,ArrayList) failure");
+                    ShareTinkerLog.e(TAG, "NoSuchMethodException: makeDexElements(ArrayList,File,ArrayList) failure");
                     try {
-                        Log.e(TAG, "NoSuchMethodException: try use v19 instead");
+                        ShareTinkerLog.e(TAG, "NoSuchMethodException: try use v19 instead");
                         return V19.makeDexElements(dexPathList, files, optimizedDirectory, suppressedExceptions);
                     } catch (NoSuchMethodException e2) {
-                        Log.e(TAG, "NoSuchMethodException: makeDexElements(List,File,List) failure");
+                        ShareTinkerLog.e(TAG, "NoSuchMethodException: makeDexElements(List,File,List) failure");
                         throw e2;
                     }
                 }
@@ -291,7 +293,7 @@ public class SystemClassLoaderAdder {
                 suppressedExceptions));
             if (suppressedExceptions.size() > 0) {
                 for (IOException e : suppressedExceptions) {
-                    Log.w(TAG, "Exception in makeDexElement", e);
+                    ShareTinkerLog.w(TAG, "Exception in makeDexElement", e);
                     throw e;
                 }
             }
@@ -311,11 +313,11 @@ public class SystemClassLoaderAdder {
                 makeDexElements = ShareReflectUtil.findMethod(dexPathList, "makeDexElements", ArrayList.class, File.class,
                     ArrayList.class);
             } catch (NoSuchMethodException e) {
-                Log.e(TAG, "NoSuchMethodException: makeDexElements(ArrayList,File,ArrayList) failure");
+                ShareTinkerLog.e(TAG, "NoSuchMethodException: makeDexElements(ArrayList,File,ArrayList) failure");
                 try {
                     makeDexElements = ShareReflectUtil.findMethod(dexPathList, "makeDexElements", List.class, File.class, List.class);
                 } catch (NoSuchMethodException e1) {
-                    Log.e(TAG, "NoSuchMethodException: makeDexElements(List,File,List) failure");
+                    ShareTinkerLog.e(TAG, "NoSuchMethodException: makeDexElements(List,File,List) failure");
                     throw e1;
                 }
             }
